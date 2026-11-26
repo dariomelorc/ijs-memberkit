@@ -1,4 +1,4 @@
-/* IJS Academy: "modo cinema" para aulas com vídeo vturb no Memberkit (v1)
+/* IJS Academy: "modo cinema" para aulas com vídeo vturb no Memberkit (v2)
  *
  * Reproduz o layout que o Memberkit usa com os players parceiros:
  *  - faixa escura no topo, em largura total, com o vídeo à esquerda e a lista de aulas à direita (desktop);
@@ -104,6 +104,29 @@
     });
   }
 
+  // Formatos de vídeo vturb aceitos:
+  //  1) embed completo: <div id="ifr_<id>_wrapper"> (com a caixa de proporção 16:9)
+  //  2) formato antigo em JS: <vturb-smartplayer>
+  //  3) iframe "limpo" pelo editor do Memberkit (sem id e sem caixa de proporção, dentro de <figure>):
+  //     o script cria a caixa 16:9 em volta dele
+  function findVideo(main) {
+    var v = main.querySelector('.prose [id^="ifr_"][id$="_wrapper"], .prose vturb-smartplayer');
+    if (v) return v;
+    var f = [].filter.call(main.querySelectorAll('.prose iframe'), function (i) {
+      return /converteai\.net|vturb/i.test(i.getAttribute('src') || '');
+    })[0];
+    if (!f) return null;
+    var box = document.createElement('div');
+    box.__ijsProse = f.closest('.prose');
+    box.style.cssText = 'position:relative;width:100%;padding-top:56.25%';
+    var fig = f.closest('figure');
+    f.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;border:0';
+    f.setAttribute('allowfullscreen', '');
+    box.appendChild(f);
+    if (fig && !fig.querySelector('iframe,img,video')) fig.remove();
+    return box;
+  }
+
   function wideCookie() { var m = document.cookie.match(/(?:^|;\s*)wide=([^;]*)/); return m && m[1] === 'true'; }
 
   function run() {
@@ -112,13 +135,13 @@
     cur = { course: cur[1], lesson: cur[2] };
     var main = document.getElementById('main');
     if (!main || main.querySelector('.bg-theater')) return; // player parceiro ou já montado
-    var video = main.querySelector('.prose [id^="ifr_"][id$="_wrapper"], .prose vturb-smartplayer');
+    var video = findVideo(main);
     if (!video) return;
     var bm = document.querySelector('[id^="bookmark_lesson_"]');
     var bar = bm && bm.parentElement;
     var cat = document.querySelector('a[href*="/categories/"][href$="/courses"]');
     var catUrl = cat ? path(cat) : '';
-    var prose = video.closest('.prose');
+    var prose = video.__ijsProse || video.closest('.prose');
 
     // 1) Faixa escura com o vídeo e a lista de aulas (mesmas classes do Memberkit)
     var stage = document.createElement('div');
@@ -130,6 +153,7 @@
       '<div class="scrollbar absolute inset-0 overflow-y-auto" data-ijs-list></div></div></div></div>';
     stage.querySelector('[data-ijs-video]').appendChild(video);
     main.insertBefore(stage, main.firstChild);
+    if (prose) [].forEach.call(prose.querySelectorAll('.vturb-player-placeholder'), function (p) { p.remove(); });
     if (prose && !prose.textContent.trim() && !prose.querySelector('img,iframe,video,a,table')) prose.style.display = 'none';
     buildList(stage.querySelector('[data-ijs-list]'), cur, catUrl);
 
