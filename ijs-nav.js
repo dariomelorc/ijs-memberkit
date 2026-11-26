@@ -1,4 +1,4 @@
-/* IJS Academy: setas de aula anterior / próxima entre produtos do mesmo módulo (v1)
+/* IJS Academy: setas de aula anterior / próxima entre produtos do mesmo módulo (v2)
  *
  * No Memberkit, cada aula dos Módulos 1 a 7 é um produto separado. As setas nativas
  * só navegam dentro do mesmo produto, então somem quando o produto tem uma aula só.
@@ -14,6 +14,11 @@
   // true: na última aula do módulo, a seta → leva à 1ª aula do módulo seguinte
   //       (e na 1ª aula, a seta ← volta para a última aula do módulo anterior)
   var CROSS_MODULE = true;
+
+  // Módulos (categorias) onde as setas funcionam, na ordem. Treinamentos e Workshops ficam de fora.
+  // Para incluir um módulo novo, acrescente o ID da categoria (número em /categories/<ID>-.../courses).
+  var MODULES = ['67819', '67820', '67821', '67825', '67826', '64403', '67829'];
+  function catId(url) { var m = (url || '').match(/^\/categories\/(\d+)/); return m ? m[1] : null; }
 
   var cache = {};
   function getDoc(url) {
@@ -68,6 +73,7 @@
       if (j >= 0 && j < list.length) return list[j];
       if (!CROSS_MODULE) return null;
       return categories().then(function (cats) {
+        cats = cats.filter(function (c) { return MODULES.indexOf(catId(c)) >= 0; });
         var k = cats.indexOf(catUrl) + dir;
         if (k < 0 || k >= cats.length || cats.indexOf(catUrl) < 0) return null;
         return coursesOf(cats[k]).then(function (l2) { return l2.length ? (dir > 0 ? l2[0] : l2[l2.length - 1]) : null; });
@@ -111,6 +117,7 @@
     var cat = document.querySelector('a[href*="/categories/"][href$="/courses"]');
     if (!cat) return;
     var catUrl = path(cat);
+    if (MODULES.indexOf(catId(catUrl)) < 0) return; // fora dos Módulos 1 a 7: não mexe
 
     var group = document.createElement('div');
     group.setAttribute('data-ijs-nav', '');
