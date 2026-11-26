@@ -153,7 +153,7 @@
       if (!d || !d.type) return;
       var th = document.querySelector('.theater');
       if (!th || !document.querySelector('[data-ijs-cinema]')) return;
-      if (d.type === 'videoPlay') { th.dataset.state = 'idle'; requestAnimationFrame(function () { th.dataset.state = 'open'; }); }
+      if (d.type === 'videoPlay') { th.dataset.state = 'idle'; requestAnimationFrame(function () { th.dataset.state = 'show'; }); }
       if (d.type === 'videoPause' || d.type === 'videoEnded') { delete th.dataset.state; }
     });
   }
