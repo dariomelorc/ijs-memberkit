@@ -1,4 +1,4 @@
-/* IJS Academy: "modo cinema" para aulas com vídeo vturb no Memberkit (v3)
+/* IJS Academy: "modo cinema" para aulas com vídeo vturb no Memberkit (v4)
  *
  * Reproduz o layout que o Memberkit usa com os players parceiros:
  *  - faixa escura no topo, em largura total, com o vídeo à esquerda e a lista de aulas à direita (desktop);
@@ -55,6 +55,33 @@
       });
     });
   }
+  // Módulo (seção) da aula atual: vem do caminho no topo da aula
+  //  - cursos novos: link "…/<curso>#<idDaSeção>"
+  //  - curso antigo: link "…/<curso>/sections/<idDaSeção>"
+  function currentSection(courseId) {
+    var re = new RegExp('^/' + courseId + '(?:-[^/]*)?(?:/sections/(\\d+)|[^#]*#(\\d+)$)');
+    var links = document.querySelectorAll('a[href]');
+    for (var i = 0; i < links.length; i++) {
+      var m = (links[i].getAttribute('href') || '').match(re);
+      if (m && (m[1] || m[2])) return m[1] || m[2];
+    }
+    return null;
+  }
+  // Aulas só do módulo atual
+  function sectionLessons(courseId, sec) {
+    return getDoc('/' + courseId).then(function (d) {
+      var seen = {}, out = [];
+      var box = d.getElementById('inner_section_' + sec) || d.getElementById(sec);
+      if (box) linksIn(box, courseId, seen, out);
+      if (out.length) return out;
+      return getDoc('/' + courseId + '/sections/' + sec).then(function (sd) {
+        var b2 = sd.getElementById('inner_section_' + sec) || sd.getElementById(sec) || sd;
+        linksIn(b2, courseId, seen, out);
+        return out;
+      });
+    });
+  }
+
   // Produtos de um módulo, na ordem: [{id, img}]
   function coursesOf(catUrl) {
     return getDoc(catUrl).then(function (d) {
@@ -90,8 +117,12 @@
   function buildList(listEl, cur, catUrl) {
     lessonsOf(cur.course).then(function (own) {
       if (own.length > 1 || MODULES.indexOf(catId(catUrl)) < 0) {
-        // Produto com várias aulas (ex.: Casos, curso ES, Workshops): lista as aulas do produto com o ícone padrão
-        return own.map(function (l) { return { href: l.href, title: l.title, img: '', active: l.href.match(/\/(\d+)(?:-[^/]*)?$/)[1] === cur.lesson }; });
+        // Produto com várias aulas (ex.: Casos, curso ES, Workshops): lista só as aulas do módulo atual,
+        // com o ícone padrão (se não achar o módulo, lista as aulas do produto)
+        var toEntries = function (ls) { return ls.map(function (l) { return { href: l.href, title: l.title, img: '', active: l.href.match(/\/(\d+)(?:-[^/]*)?$/)[1] === cur.lesson }; }); };
+        var sec = currentSection(cur.course);
+        if (!sec) return toEntries(own);
+        return sectionLessons(cur.course, sec).then(function (ls) { return toEntries(ls.length ? ls : own); });
       }
       // Produto de uma aula só (Módulos 1 a 7): lista as aulas do módulo
       return coursesOf(catUrl).then(function (cs) {
