@@ -1,4 +1,4 @@
-/* IJS Academy: "modo cinema" para aulas com vídeo vturb no Memberkit (v2)
+/* IJS Academy: "modo cinema" para aulas com vídeo vturb no Memberkit (v3)
  *
  * Reproduz o layout que o Memberkit usa com os players parceiros:
  *  - faixa escura no topo, em largura total, com o vídeo à esquerda e a lista de aulas à direita (desktop);
@@ -33,14 +33,26 @@
   function isEs() { return (document.documentElement.lang || '').indexOf('es') === 0; }
 
   // Aulas de um produto: [{href, title}]
+  // Alguns cursos (ex.: o curso antigo em Treinamentos) não listam as aulas na página do curso,
+  // só dentro de cada módulo (/sections/...): nesse caso busca módulo a módulo, na ordem.
+  function linksIn(d, courseId, seen, out) {
+    var re = new RegExp('^/' + courseId + '(?:-[^/]*)?/\\d+');
+    [].forEach.call(d.querySelectorAll('a[href]'), function (a) {
+      var p = path(a), t = a.textContent.replace(/\s+/g, ' ').trim();
+      if (re.test(p) && !seen[p] && t) { seen[p] = 1; out.push({ href: p, title: t }); }
+    });
+  }
   function lessonsOf(courseId) {
     return getDoc('/' + courseId).then(function (d) {
-      var re = new RegExp('^/' + courseId + '(?:-[^/]*)?/\\d+'), seen = {}, out = [];
-      [].forEach.call(d.querySelectorAll('a[href]'), function (a) {
-        var p = path(a), t = a.textContent.replace(/\s+/g, ' ').trim();
-        if (re.test(p) && !seen[p] && t) { seen[p] = 1; out.push({ href: p, title: t }); }
+      var seen = {}, out = [];
+      linksIn(d, courseId, seen, out);
+      if (out.length) return out;
+      var reSec = new RegExp('^/' + courseId + '(?:-[^/]*)?/sections/\\d+[^/]*$');
+      var secs = uniq([].map.call(d.querySelectorAll('a[href]'), function (a) { var p = path(a); return reSec.test(p) ? p : null; }));
+      return Promise.all(secs.map(getDoc)).then(function (docs) {
+        docs.forEach(function (sd) { linksIn(sd, courseId, seen, out); });
+        return out;
       });
-      return out;
     });
   }
   // Produtos de um módulo, na ordem: [{id, img}]
@@ -58,23 +70,18 @@
   function courseTitle(courseId) {
     return getDoc('/' + courseId).then(function (d) { return (d.title || '').split(' · ')[0].trim(); });
   }
-  function courseCover(courseId) {
-    return getDoc('/' + courseId).then(function (d) {
-      var img = d.querySelector('main img[src*="memberkit"], main img');
-      return img ? img.getAttribute('src') : '';
-    });
-  }
 
   var ICONS = {
     layout: '<div class="icon flex-none pointer-events-none size-5 "><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path></svg></div>',
     light: '<div class="icon flex-none pointer-events-none size-5 "><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg></div>',
-    video: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px"><path d="M8 5.14v14l11-7-11-7z"/></svg>'
+    // ícone padrão das aulas sem miniatura (mesmo estilo dos itens do player parceiro: quadro roxo com símbolo branco)
+    video: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><circle cx="12" cy="12" r="9"/><path d="M10 8.8v6.4l5.2-3.2z" fill="currentColor" stroke="none"/></svg>'
   };
 
   function entryHtml(e, active) {
     var thumb = e.img
       ? '<img width="60" height="34" class="rounded" style="width:60px;height:34px;object-fit:cover" src="' + esc(e.img) + '">'
-      : '<div class="rounded" style="width:60px;height:34px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#3b2a8a,#6d4ae0);color:#fff">' + ICONS.video + '</div>';
+      : '<div class="rounded" style="width:60px;height:34px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#4338ca,#7c3aed);color:#fff">' + ICONS.video + '</div>';
     return '<a ' + (active ? 'data-controller="scroll-to-self" ' : '') +
       'class="aside__entry flex items-center px-5 py-3 leading-snug text-white/60 outline-none transition-all hover:bg-white/10 hover:text-white' + (active ? ' active bg-white/10 text-white' : '') +
       '" href="' + esc(e.href) + '"><div class="flex-none">' + thumb + '</div><div class="ml-4 font-medium">' + esc(e.title) + '</div></a>';
@@ -83,10 +90,8 @@
   function buildList(listEl, cur, catUrl) {
     lessonsOf(cur.course).then(function (own) {
       if (own.length > 1 || MODULES.indexOf(catId(catUrl)) < 0) {
-        // Produto com várias aulas (ex.: Casos): lista as aulas do produto
-        return courseCover(cur.course).then(function (img) {
-          return own.map(function (l) { return { href: l.href, title: l.title, img: img, active: l.href.match(/\/(\d+)(?:-[^/]*)?$/)[1] === cur.lesson }; });
-        });
+        // Produto com várias aulas (ex.: Casos, curso ES, Workshops): lista as aulas do produto com o ícone padrão
+        return own.map(function (l) { return { href: l.href, title: l.title, img: '', active: l.href.match(/\/(\d+)(?:-[^/]*)?$/)[1] === cur.lesson }; });
       }
       // Produto de uma aula só (Módulos 1 a 7): lista as aulas do módulo
       return coursesOf(catUrl).then(function (cs) {
@@ -98,6 +103,11 @@
       });
     }).then(function (entries) {
       if (!document.body.contains(listEl)) return;
+      if (!entries.length) { // sem lista: o vídeo ocupa a largura toda e o botão de layout some
+        var aside = listEl.closest('#aside__entries'); if (aside) aside.remove();
+        var tb = document.querySelector('[data-ijs-cinema-btn][data-controller="toggle"]'); if (tb) tb.remove();
+        return;
+      }
       listEl.innerHTML = entries.map(function (e) { return entryHtml(e, e.active); }).join('');
       var act = listEl.querySelector('.active');
       if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
