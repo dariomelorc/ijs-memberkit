@@ -418,7 +418,13 @@
     var pt = ptData();
     if (pt) return { key: 'auto', job: pt };
     if (hasEs) return { key: 'auto', job: courseData(ES_COURSE) };
-    return null;
+    // Sem Treinamento PT nem curso ES (ex.: aluno só com Casos ES e Start):
+    // mostra o primeiro curso com 2 ou mais aulas, na ordem do início
+    return { key: 'auto', job: courseOptions().then(function (o) {
+      var first = null;
+      o.groups.some(function (g) { first = g.opts[0] || null; return !!first; });
+      return first ? courseData(first.v) : null;
+    }) };
   }
 
   // Cursos do início que o aluno pode escolher: o Treinamento (um item) + produtos com 2 ou mais aulas
