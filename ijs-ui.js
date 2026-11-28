@@ -435,7 +435,7 @@
       var cat = box && box.querySelector('a[href*="/categories/"]');
       var m = cat && cat.getAttribute('href').match(/\/categories\/(\d+)/);
       if (!m) return;
-      if (PT_CATS.indexOf(m[1]) >= 0) { hasPt = true; return; }
+      if (PT_CATS.indexOf(m[1]) >= 0) { if (box.querySelector('.poster a[href]')) hasPt = true; return; } // fileira vazia = aluno sem o Treinamento
       var name = (h.childNodes[0] ? h.childNodes[0].textContent : h.textContent).trim();
       var items = [];
       box.querySelectorAll('.poster a[href]').forEach(function (a) {
