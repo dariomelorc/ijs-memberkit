@@ -313,6 +313,10 @@
         var t = splitTitle(lessonTitle(ld));
         data.url = url; data.chip = t[0]; data.title = t[1];
         data.modLabel = '';
+        if (sec && !sec.name) { // formato lista: o nome do módulo vem do caminho no topo da aula
+          var crumb = ld.querySelector('a[href$="#' + sec.id + '"], a[href*="/sections/' + sec.id + '"]');
+          if (crumb) sec.name = crumb.textContent.replace(/\s+/g, ' ').trim();
+        }
         data.modName = (sec && sec.name && sec.name !== data.course) ? sec.name : '';
         data.modUrl = sec ? sec.url : base;
         if (sec) { data.idx = pos + 1; data.idxTotal = sec.lessons.length; data.modTotal = sec.lessons.length; data.modDone = pos; }
