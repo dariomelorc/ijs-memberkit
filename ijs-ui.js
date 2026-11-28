@@ -158,6 +158,10 @@
     var m = t.match(/^(.{1,30}?)\s+[—–-]\s+(.+)$/);
     return m ? [m[1], m[2]] : ['', t];
   }
+  function lessonTitle(doc) { // título da aula na página da aula (o <title> é o nome do produto)
+    var h = doc.querySelector('.content__title');
+    return (h ? h.textContent : doc.title.split(' · ')[0]).replace(/\s+/g, ' ').trim();
+  }
   function firstName() {
     if (nameCache !== null) return Promise.resolve(nameCache);
     return getDoc('/users/edit').then(function (r) {
@@ -202,11 +206,15 @@
     data.modTotal = modItems.length;
     // /continue leva à próxima aula do produto (nos Casos, à aula certa dentro do caso)
     return getDoc(next.href + '/continue').then(function (r) {
-      var t = splitTitle(r.doc.title);
+      var product = r.doc.title.split(' · ')[0].trim();
+      var t = splitTitle(lessonTitle(r.doc));
       data.url = /\/\d+-[^/]+\/\d+-/.test(r.url) ? r.url : next.href;
       data.chip = t[0]; data.title = t[1];
       data.modLabel = next.modLabel; data.modName = next.modName; data.modUrl = next.modUrl;
-      data.idx = next.idx; data.idxTotal = next.modTotal; data.img = next.img;
+      data.img = next.img;
+      // produto de várias aulas (ex.: Caso 1): mostra o nome do produto no lugar de "Aula X de Y"
+      if (product && product !== lessonTitle(r.doc)) data.extra = product;
+      else { data.idx = next.idx; data.idxTotal = next.modTotal; }
       return data;
     });
   }
@@ -233,7 +241,7 @@
       var secLis = sec ? sec.querySelectorAll('li[data-id]') : [];
       var secId = sec ? sec.id.replace('inner_section_', '') : '';
       var crumb = secId && ld.querySelector('a[href$="#' + secId + '"]');
-      var t = splitTitle(ld.title);
+      var t = splitTitle(lessonTitle(ld));
       data.url = url; data.chip = t[0]; data.title = t[1];
       data.modLabel = ''; data.modName = crumb ? crumb.textContent.trim() : '';
       data.modUrl = base + (secId ? '#' + secId : '');
@@ -282,7 +290,8 @@
       var meta = [];
       if (d.modLabel) meta.push('<span>' + esc(d.modLabel) + '</span>');
       if (d.modName) meta.push('<span>' + esc(d.modName) + '</span>');
-      if (d.idx > 0) meta.push('<span>Aula ' + d.idx + ' de ' + d.idxTotal + '</span>');
+      if (d.extra) meta.push('<span>' + esc(d.extra) + '</span>');
+      else if (d.idx > 0) meta.push('<span>Aula ' + d.idx + ' de ' + d.idxTotal + '</span>');
       var bar = d.modTotal ? Math.round((d.modDone || 0) / d.modTotal * 100) : 0;
       left = '<div><p class="ijs-eyebrow">' + hello + '<span>Continue de onde parou</span></p>' +
         '<h2 class="ijs-title">' + esc(d.title) + '</h2>' +
