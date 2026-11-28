@@ -286,7 +286,8 @@
     '#ijs-home .ijs-pick{display:block;margin:0 0 10px;font-size:12px;opacity:.85}' +
     '#ijs-home .ijs-pick[hidden]{display:none}' +
     '#ijs-home .ijs-pick span{display:block;margin-bottom:4px}' +
-    '#ijs-home .ijs-pick select{width:100%;max-width:100%;font-size:14px;padding:7px 10px;border-radius:10px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit}' +
+    '#ijs-home .ijs-hero,#ijs-home .ijs-prog{min-width:0}' +
+    '#ijs-home .ijs-pick select{display:block;width:100%;min-width:0;max-width:100%;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;font-size:14px;padding:7px 10px;border-radius:10px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit}' +
     '#ijs-home .ijs-pick option{color:#111;background:#fff}' +
     '#ijs-home .ijs-cert{border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.45;background:rgba(127,127,127,.1)}';
 
