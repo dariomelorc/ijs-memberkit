@@ -283,12 +283,19 @@
     '#ijs-home .ijs-ring b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px}' +
     '#ijs-home .ijs-ring-txt strong{display:block;font-size:16px}' +
     '#ijs-home .ijs-ring-txt span{font-size:14px;opacity:.75}' +
-    '#ijs-home .ijs-pick{display:block;margin:0 0 10px;font-size:12px;opacity:.85}' +
-    '#ijs-home .ijs-pick[hidden]{display:none}' +
-    '#ijs-home .ijs-pick span{display:block;margin-bottom:4px}' +
     '#ijs-home .ijs-hero,#ijs-home .ijs-prog{min-width:0}' +
-    '#ijs-home .ijs-pick select{display:block;width:100%;min-width:0;max-width:100%;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;font-size:14px;padding:7px 10px;border-radius:10px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit}' +
-    '#ijs-home .ijs-pick option{color:#111;background:#fff}' +
+    '#ijs-home .ijs-prog{position:relative}' +
+    '#ijs-home .ijs-prog-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px}' +
+    '#ijs-home .ijs-prog-head .ijs-eyebrow{margin:0}' +
+    '#ijs-home .ijs-pick-btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;cursor:pointer;white-space:nowrap}' +
+    '#ijs-home .ijs-pick-btn:hover{background:rgba(127,127,127,.1)}' +
+    '#ijs-home .ijs-pick-btn[hidden],#ijs-home .ijs-pick-list[hidden]{display:none}' +
+    '#ijs-home .ijs-pick-list{position:absolute;z-index:30;top:58px;left:16px;right:16px;max-height:340px;overflow-y:auto;border-radius:14px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,.18);border-width:1px;border-style:solid}' +
+    '#ijs-home .ijs-pick-list h4{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.6;margin:10px 10px 4px;font-weight:600}' +
+    '#ijs-home .ijs-pick-list button{display:flex;width:100%;text-align:left;gap:8px;align-items:flex-start;font-size:14px;line-height:1.35;padding:8px 10px;border:0;border-radius:10px;background:transparent;color:inherit;cursor:pointer}' +
+    '#ijs-home .ijs-pick-list button:hover{background:rgba(127,127,127,.12)}' +
+    '#ijs-home .ijs-pick-list button i{flex:none;width:14px;font-style:normal;color:#2a52a8}' +
+    '#ijs-home .ijs-pick-list button[aria-current] {font-weight:600}' +
     '#ijs-home .ijs-cert{border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.45;background:rgba(127,127,127,.1)}';
 
   function heroHtml(d, name) {
@@ -317,8 +324,9 @@
     }
     return '<div class="ijs-hero">' + left + '</div>' +
       '<div class="ijs-prog bg-card text-foreground border-border">' +
-        '<p class="ijs-eyebrow"><span>Seu progresso</span></p>' +
-        '<label class="ijs-pick" hidden><span>Ver progresso de</span><select></select></label>' +
+        '<div class="ijs-prog-head"><p class="ijs-eyebrow"><span>Seu progresso</span></p>' +
+          '<button type="button" class="ijs-pick-btn" aria-expanded="false" hidden><span>Seus cursos</span> ▾</button></div>' +
+        '<div class="ijs-pick-list bg-card text-foreground border-border" role="menu" hidden></div>' +
         '<div class="ijs-ring-row"><div class="ijs-ring"><svg viewBox="0 0 92 92">' +
           '<circle cx="46" cy="46" r="40" fill="none" stroke="currentColor" stroke-opacity=".12" stroke-width="9"/>' +
           '<circle cx="46" cy="46" r="40" fill="none" stroke="#2a52a8" stroke-width="9" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"/>' +
@@ -385,29 +393,49 @@
     });
   }
 
+  var pickDocBound = false;
+  function closePickers() {
+    document.querySelectorAll('#ijs-home .ijs-pick-list').forEach(function (l) { l.hidden = true; });
+    document.querySelectorAll('#ijs-home .ijs-pick-btn').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+  }
   function fillPicker(box, key) {
+    if (!pickDocBound) {
+      pickDocBound = true;
+      document.addEventListener('click', function (e) { if (!e.target.closest || !e.target.closest('.ijs-pick-list,.ijs-pick-btn')) closePickers(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePickers(); });
+    }
     courseOptions().then(function (o) {
-      var label = box.querySelector('.ijs-pick'), sel = label && label.querySelector('select');
-      if (!sel || !document.body.contains(box)) return;
+      var btn = box.querySelector('.ijs-pick-btn'), list = box.querySelector('.ijs-pick-list');
+      if (!btn || !list || !document.body.contains(box)) return;
       var count = (o.hasPt ? 1 : 0) + o.groups.reduce(function (n, g) { return n + g.opts.length; }, 0);
-      if (count < 2) return; // um curso só: sem seletor
-      var html = '<option value="auto">Automático</option>';
-      if (o.hasPt) html += '<option value="pt">Treinamento LumiFat (Módulos 1 a 7)</option>';
+      if (count < 2) return; // um curso só: sem lista
+      function item(v, t) {
+        var cur = v === key;
+        return '<button type="button" role="menuitem" data-v="' + esc(v) + '"' + (cur ? ' aria-current="true"' : '') + '><i>' + (cur ? '✓' : '') + '</i><span>' + esc(t) + '</span></button>';
+      }
+      var html = item('auto', 'Automático');
+      if (o.hasPt) html += item('pt', 'Treinamento LumiFat (Módulos 1 a 7)');
       o.groups.forEach(function (g) {
-        html += '<optgroup label="' + esc(g.name) + '">' + g.opts.map(function (x) {
-          return '<option value="' + x.v + '">' + esc(x.t) + '</option>'; }).join('') + '</optgroup>';
+        html += '<h4>' + esc(g.name) + '</h4>' + g.opts.map(function (x) { return item(x.v, x.t); }).join('');
       });
-      sel.innerHTML = html;
-      sel.value = key;
-      if (sel.value !== key) sel.value = 'auto';
-      label.hidden = false;
-      sel.addEventListener('change', function () {
-        setPick(sel.value);
-        var old = document.getElementById('ijs-home');
-        if (old) old.style.opacity = '.55';
+      list.innerHTML = html;
+      btn.hidden = false;
+      btn.addEventListener('click', function () {
+        var open = list.hidden;
+        closePickers();
+        list.hidden = !open;
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      list.addEventListener('click', function (e) {
+        var b = e.target.closest && e.target.closest('button[data-v]');
+        if (!b) return;
+        closePickers();
+        if (b.getAttribute('data-v') === key) return;
+        setPick(b.getAttribute('data-v'));
+        box.style.opacity = '.55';
         renderHero(true);
       });
-    }).catch(function (e) { if (window.console) console.warn('[ijs-ui] seletor', e); });
+    }).catch(function (e) { if (window.console) console.warn('[ijs-ui] cursos', e); });
   }
 
   function renderHero(replace) {
