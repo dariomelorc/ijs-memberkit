@@ -14,7 +14,7 @@
   window.__ijsUi = true;
 
   /* ---------- 1. Atalho para a aula ---------- */
-  var KEY = 'ijs_ui_single_v2';
+  var KEY = 'ijs_ui_single_v3';
   var TTL_HIT = 24 * 3600 * 1000;   // produto de 1 aula: guarda por 24 h
   var TTL_MISS = 6 * 3600 * 1000;   // produto com várias aulas (ou sem acesso): 6 h
   var pending = {};
@@ -59,6 +59,14 @@
           var list = Object.keys(lessons);
           var sections = d.querySelectorAll('[id^="inner_section_"]').length;
           out.c = list.length;
+          if (!list.length) { // grade de módulos: as aulas ficam nas páginas dos módulos
+            var secs = {};
+            d.querySelectorAll('a[href]').forEach(function (a) {
+              var m = a.getAttribute('href').replace(location.origin, '').match(new RegExp('^/' + pid + '-[^/]+/sections/(\\d+)'));
+              if (m) secs[m[1]] = 1;
+            });
+            out.c = Object.keys(secs).length;
+          }
           out.n = (d.title || '').split(' · ')[0].trim();
           if (list.length === 1 && sections <= 1) out.u = list[0];
         }
@@ -227,6 +235,65 @@
   }
 
   // Qualquer curso (curso ES, Aulão, Workshops…): % do cartão, módulos da página do curso e /continue
+  /* Estrutura de um curso: módulos e aulas na ordem. Funciona nos dois formatos do Memberkit:
+   *  - lista: a página do curso traz os módulos (#inner_section_<id>) com as aulas dentro;
+   *  - grade de módulos (curso antigo de Treinamentos): a página do curso traz só os cartões
+   *    dos módulos (/sections/<id>) e as aulas ficam na página de cada módulo.
+   * Guardada no navegador por 6 h (ijs_ui_struct_v1). */
+  var STRUCT_KEY = 'ijs_ui_struct_v1', STRUCT_TTL = 6 * 3600 * 1000;
+  function structure(pid, base, courseDoc) {
+    try {
+      var all = JSON.parse(localStorage.getItem(STRUCT_KEY) || '{}'), e = all[pid];
+      if (e && Date.now() - e.t < STRUCT_TTL) return Promise.resolve(e);
+    } catch (x) {}
+    var reLesson = new RegExp('^/' + pid + '-[^/]+/(\\d+)-[^/?#]*$');
+    function lessonIds(doc) {
+      var ids = [];
+      doc.querySelectorAll('a[href]').forEach(function (a) {
+        var m = a.getAttribute('href').replace(location.origin, '').match(reLesson);
+        if (m && ids.indexOf(m[1]) < 0) ids.push(m[1]);
+      });
+      return ids;
+    }
+    var cd = courseDoc, out = { name: cd.title.split(' · ')[0].trim(), sections: [], t: Date.now() };
+    var blocks = cd.querySelectorAll('[id^="inner_section_"]');
+    var job;
+    if (blocks.length) {
+      blocks.forEach(function (b) {
+        var ids = [];
+        b.querySelectorAll('li[data-id]').forEach(function (li) { ids.push(li.getAttribute('data-id')); });
+        var h = b.querySelector('h2,h3,h4');
+        var id = b.id.replace('inner_section_', '');
+        out.sections.push({ id: id, name: h ? h.textContent.replace(/\s+/g, ' ').trim() : '', url: base + '#' + id, lessons: ids });
+      });
+      job = Promise.resolve();
+    } else {
+      var reSec = new RegExp('^/' + pid + '-[^/]+/sections/(\\d+)');
+      var seen = {};
+      cd.querySelectorAll('a[href]').forEach(function (a) {
+        var h = a.getAttribute('href').replace(location.origin, ''), m = h.match(reSec);
+        if (!m || seen[m[1]]) return;
+        seen[m[1]] = 1;
+        out.sections.push({ id: m[1], name: a.textContent.replace(/\s+/g, ' ').trim(), url: h, lessons: [] });
+      });
+      var k = 0;
+      var worker = function () {
+        if (k >= out.sections.length) return Promise.resolve();
+        var sec = out.sections[k++];
+        return getDoc(sec.url).then(function (r) {
+          sec.lessons = lessonIds(r.doc);
+          if (!sec.name) sec.name = r.doc.title.split(' · ')[0].trim();
+        }).catch(function () {}).then(worker);
+      };
+      job = Promise.all([worker(), worker(), worker()]);
+    }
+    return job.then(function () {
+      try { var all2 = JSON.parse(localStorage.getItem(STRUCT_KEY) || '{}'); all2[pid] = out; localStorage.setItem(STRUCT_KEY, JSON.stringify(all2)); } catch (x) {}
+      return out;
+    });
+  }
+
+  // Qualquer curso (curso ES, Aulão, Workshops, curso antigo…): % do cartão, estrutura do curso e /continue
   function courseData(pid) {
     var a = document.querySelector('a[href^="/' + pid + '-"]');
     var poster = a && a.closest('.poster');
@@ -234,28 +301,23 @@
     var base = a.getAttribute('href').split('/').slice(0, 2).join('/');
     var pct = pctOf(poster);
     return Promise.all([getDoc(base), getDoc(base + '/continue')]).then(function (rs) {
-      var cd = rs[0].doc, ld = rs[1].doc, url = rs[1].url;
-      var lis = cd.querySelectorAll('[id^="inner_section_"] li[data-id]');
-      var total = lis.length || 1;
-      var done = Math.round(pct * total / 100);
-      var h1 = cd.querySelector('h1');
-      var data = { course: (h1 ? h1.textContent : cd.title.split(' · ')[0]).trim(), done: done, total: total,
-        finished: pct >= 100, finalUrl: base, img: (poster.querySelector('img') || {}).src || '' };
-      var lm = url.match(/\/(\d+)-[^/]*$/);
-      if (!lm || data.finished) return data;
-      var li = cd.querySelector('[id^="inner_section_"] li[data-id="' + lm[1] + '"]');
-      var sec = li && li.closest('[id^="inner_section_"]');
-      var secLis = sec ? sec.querySelectorAll('li[data-id]') : [];
-      var secId = sec ? sec.id.replace('inner_section_', '') : '';
-      var crumb = secId && ld.querySelector('a[href$="#' + secId + '"]');
-      var t = splitTitle(lessonTitle(ld));
-      data.url = url; data.chip = t[0]; data.title = t[1];
-      var secName = crumb ? crumb.textContent.trim() : '';
-      data.modLabel = ''; data.modName = (secName && secName !== data.course) ? secName : '';
-      data.modUrl = base + (secId ? '#' + secId : '');
-      data.idx = Array.prototype.indexOf.call(secLis, li) + 1; data.idxTotal = secLis.length;
-      data.modTotal = secLis.length; data.modDone = Math.round(data.idx - 1);
-      return data;
+      var ld = rs[1].doc, url = rs[1].url;
+      return structure(pid, base, rs[0].doc).then(function (st) {
+        var total = st.sections.reduce(function (n, x) { return n + x.lessons.length; }, 0) || 1;
+        var data = { course: st.name, done: Math.round(pct * total / 100), total: total,
+          finished: pct >= 100, finalUrl: base, img: (poster.querySelector('img') || {}).src || '' };
+        var lm = url.match(/\/(\d+)-[^/]*$/);
+        if (!lm || data.finished) return data;
+        var sec = null, pos = -1;
+        st.sections.some(function (x) { var i = x.lessons.indexOf(lm[1]); if (i >= 0) { sec = x; pos = i; return true; } return false; });
+        var t = splitTitle(lessonTitle(ld));
+        data.url = url; data.chip = t[0]; data.title = t[1];
+        data.modLabel = '';
+        data.modName = (sec && sec.name && sec.name !== data.course) ? sec.name : '';
+        data.modUrl = sec ? sec.url : base;
+        if (sec) { data.idx = pos + 1; data.idxTotal = sec.lessons.length; data.modTotal = sec.lessons.length; data.modDone = pos; }
+        return data;
+      });
     });
   }
 
