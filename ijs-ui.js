@@ -205,16 +205,20 @@
     data.modDone = modItems.filter(function (x) { return x.pct >= 100; }).length;
     data.modTotal = modItems.length;
     // /continue leva à próxima aula do produto (nos Casos, à aula certa dentro do caso)
-    return getDoc(next.href + '/continue').then(function (r) {
+    var pid = next.href.match(/^\/(\d+)/)[1];
+    return Promise.all([getDoc(next.href + '/continue'), lookup(pid, next.href)]).then(function (rs) {
+      var r = rs[0], single = !!rs[1];
       var product = r.doc.title.split(' · ')[0].trim();
-      var t = splitTitle(lessonTitle(r.doc));
       data.url = /\/\d+-[^/]+\/\d+-/.test(r.url) ? r.url : next.href;
-      data.chip = t[0]; data.title = t[1];
       data.modLabel = next.modLabel; data.modName = next.modName; data.modUrl = next.modUrl;
       data.img = next.img;
-      // produto de várias aulas (ex.: Caso 1): mostra o nome do produto no lugar de "Aula X de Y"
-      if (product && product !== lessonTitle(r.doc)) data.extra = product;
-      else { data.idx = next.idx; data.idxTotal = next.modTotal; }
+      if (single) {
+        // produto de 1 aula: o nome padronizado do produto ("Aula 3 — Passo a passo…")
+        data.title = splitTitle(product)[1]; data.idx = next.idx; data.idxTotal = next.modTotal;
+      } else {
+        // produto de várias aulas (ex.: Caso 1): título da aula + nome do produto
+        data.title = splitTitle(lessonTitle(r.doc))[1]; data.extra = product;
+      }
       return data;
     });
   }
