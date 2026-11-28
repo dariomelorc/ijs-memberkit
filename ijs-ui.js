@@ -14,7 +14,7 @@
   window.__ijsUi = true;
 
   /* ---------- 1. Atalho para a aula ---------- */
-  var KEY = 'ijs_ui_single_v1';
+  var KEY = 'ijs_ui_single_v2';
   var TTL_HIT = 24 * 3600 * 1000;   // produto de 1 aula: guarda por 24 h
   var TTL_MISS = 6 * 3600 * 1000;   // produto com várias aulas (ou sem acesso): 6 h
   var pending = {};
@@ -22,15 +22,14 @@
   function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } }
   function save(c) { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch (e) {} }
 
-  function cached(pid) {
+  // Entrada guardada por produto: u = aula única ('' se não for), n = nome, c = nº de aulas
+  function entry(pid) {
     var e = load()[pid];
     if (!e) return undefined;
     if (Date.now() - e.t > (e.u ? TTL_HIT : TTL_MISS)) return undefined;
-    return e.u; // '' = não é produto de 1 aula
+    return e;
   }
-  function remember(pid, url) {
-    var c = load(); c[pid] = { u: url || '', t: Date.now() }; save(c);
-  }
+  function cached(pid) { var e = entry(pid); return e ? e.u : undefined; }
 
   // "/295663-aula-5-processamento-da-gordura" -> "295663"
   function productId(a) {
@@ -40,14 +39,15 @@
     return m ? m[1] : null;
   }
 
-  function lookup(pid, path) {
-    var c = cached(pid);
-    if (c !== undefined) return Promise.resolve(c);
+  // Lê a página do produto: nome, nº de aulas e (se tiver 1 módulo e 1 aula) o link da aula
+  function probe(pid, path) {
+    var e = entry(pid);
+    if (e) return Promise.resolve(e);
     if (pending[pid]) return pending[pid];
     pending[pid] = fetch(path, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.text() : ''; })
       .then(function (html) {
-        var url = '';
+        var out = { u: '', n: '', c: 0, t: Date.now() };
         if (html) {
           var d = new DOMParser().parseFromString(html, 'text/html');
           var re = new RegExp('^/' + pid + '-[^/]+/\\d+-[^/?#]*$');
@@ -58,15 +58,18 @@
           });
           var list = Object.keys(lessons);
           var sections = d.querySelectorAll('[id^="inner_section_"]').length;
-          if (list.length === 1 && sections <= 1) url = list[0];
+          out.c = list.length;
+          out.n = (d.title || '').split(' · ')[0].trim();
+          if (list.length === 1 && sections <= 1) out.u = list[0];
         }
-        remember(pid, url);
+        var c = load(); c[pid] = out; save(c);
         delete pending[pid];
-        return url;
+        return out;
       })
-      .catch(function () { delete pending[pid]; return ''; });
+      .catch(function () { delete pending[pid]; return { u: '', n: '', c: 0 }; });
     return pending[pid];
   }
+  function lookup(pid, path) { return probe(pid, path).then(function (e) { return e.u; }); }
 
   function go(url) {
     if (window.Turbo && Turbo.visit) Turbo.visit(url); else location.href = url;
@@ -199,7 +202,7 @@
     var next = null;
     for (var i = last + 1; i < items.length; i++) if (items[i].pct < 100) { next = items[i]; break; }
     if (!next) for (var j = 0; j < items.length; j++) if (items[j].pct < 100) { next = items[j]; break; }
-    var data = { course: PT_NAME, done: done, total: items.length, finished: !next, finalUrl: PT_FINAL };
+    var data = { pt: true, course: PT_NAME, done: done, total: items.length, finished: !next, finalUrl: PT_FINAL };
     if (!next) return Promise.resolve(data);
     var modItems = items.filter(function (x) { return x.cat === next.cat; });
     data.modDone = modItems.filter(function (x) { return x.pct >= 100; }).length;
@@ -223,9 +226,9 @@
     });
   }
 
-  // Curso ES: % do cartão, módulos da página do curso e /continue
-  function esData() {
-    var a = document.querySelector('a[href^="/' + ES_COURSE + '-"]');
+  // Qualquer curso (curso ES, Aulão, Workshops…): % do cartão, módulos da página do curso e /continue
+  function courseData(pid) {
+    var a = document.querySelector('a[href^="/' + pid + '-"]');
     var poster = a && a.closest('.poster');
     if (!poster) return null;
     var base = a.getAttribute('href').split('/').slice(0, 2).join('/');
@@ -247,7 +250,8 @@
       var crumb = secId && ld.querySelector('a[href$="#' + secId + '"]');
       var t = splitTitle(lessonTitle(ld));
       data.url = url; data.chip = t[0]; data.title = t[1];
-      data.modLabel = ''; data.modName = crumb ? crumb.textContent.trim() : '';
+      var secName = crumb ? crumb.textContent.trim() : '';
+      data.modLabel = ''; data.modName = (secName && secName !== data.course) ? secName : '';
       data.modUrl = base + (secId ? '#' + secId : '');
       data.idx = Array.prototype.indexOf.call(secLis, li) + 1; data.idxTotal = secLis.length;
       data.modTotal = secLis.length; data.modDone = Math.round(data.idx - 1);
@@ -279,6 +283,11 @@
     '#ijs-home .ijs-ring b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px}' +
     '#ijs-home .ijs-ring-txt strong{display:block;font-size:16px}' +
     '#ijs-home .ijs-ring-txt span{font-size:14px;opacity:.75}' +
+    '#ijs-home .ijs-pick{display:block;margin:0 0 10px;font-size:12px;opacity:.85}' +
+    '#ijs-home .ijs-pick[hidden]{display:none}' +
+    '#ijs-home .ijs-pick span{display:block;margin-bottom:4px}' +
+    '#ijs-home .ijs-pick select{width:100%;max-width:100%;font-size:14px;padding:7px 10px;border-radius:10px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit}' +
+    '#ijs-home .ijs-pick option{color:#111;background:#fff}' +
     '#ijs-home .ijs-cert{border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.45;background:rgba(127,127,127,.1)}';
 
   function heroHtml(d, name) {
@@ -287,7 +296,7 @@
     var hello = name ? '<span>Olá, ' + esc(name) + '</span> · ' : '';
     var left;
     if (d.finished) {
-      left = '<div><p class="ijs-eyebrow">' + hello + '<span>Treinamento concluído</span></p>' +
+      left = '<div><p class="ijs-eyebrow">' + hello + '<span>' + (d.pt ? 'Treinamento concluído' : 'Curso concluído') + '</span></p>' +
         '<h2 class="ijs-title"><span>Parabéns, você concluiu todas as aulas!</span></h2>' +
         '<div class="ijs-actions"><a class="ijs-btn ijs-btn--light" href="' + esc(d.finalUrl) + '"><span>Ver certificado</span></a></div></div>';
     } else {
@@ -308,6 +317,7 @@
     return '<div class="ijs-hero">' + left + '</div>' +
       '<div class="ijs-prog bg-card text-foreground border-border">' +
         '<p class="ijs-eyebrow"><span>Seu progresso</span></p>' +
+        '<label class="ijs-pick" hidden><span>Ver progresso de</span><select></select></label>' +
         '<div class="ijs-ring-row"><div class="ijs-ring"><svg viewBox="0 0 92 92">' +
           '<circle cx="46" cy="46" r="40" fill="none" stroke="currentColor" stroke-opacity=".12" stroke-width="9"/>' +
           '<circle cx="46" cy="46" r="40" fill="none" stroke="#2a52a8" stroke-width="9" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"/>' +
@@ -317,17 +327,102 @@
       '</div>';
   }
 
-  function renderHero() {
+  /* Seletor de curso: "auto", "pt" (Treinamento, Módulos 1 a 7) ou o ID do produto.
+   * A escolha fica no navegador; se o curso escolhido não estiver no início, volta ao automático. */
+  var PICK_KEY = 'ijs_ui_progress_course';
+  function getPick() { try { return localStorage.getItem(PICK_KEY) || 'auto'; } catch (e) { return 'auto'; } }
+  function setPick(v) { try { if (v === 'auto') localStorage.removeItem(PICK_KEY); else localStorage.setItem(PICK_KEY, v); } catch (e) {} }
+
+  function hasPoster(pid) { return !!document.querySelector('a[href^="/' + pid + '-"]'); }
+  function chooseJob() {
+    var pick = getPick();
+    if (pick === 'pt') { var p = ptData(); if (p) return { key: 'pt', job: p }; }
+    else if (pick !== 'auto' && hasPoster(pick)) return { key: pick, job: courseData(pick) };
+    var hasEs = hasPoster(ES_COURSE);
+    if (uiLang() === 'es' && hasEs) return { key: 'auto', job: courseData(ES_COURSE) };
+    var pt = ptData();
+    if (pt) return { key: 'auto', job: pt };
+    if (hasEs) return { key: 'auto', job: courseData(ES_COURSE) };
+    return null;
+  }
+
+  // Cursos do início que o aluno pode escolher: o Treinamento (um item) + produtos com 2 ou mais aulas
+  function courseOptions() {
+    var groups = [], hasPt = false;
+    document.querySelectorAll('h3').forEach(function (h) {
+      var box = h.parentElement && h.parentElement.parentElement;
+      var cat = box && box.querySelector('a[href*="/categories/"]');
+      var m = cat && cat.getAttribute('href').match(/\/categories\/(\d+)/);
+      if (!m) return;
+      if (PT_CATS.indexOf(m[1]) >= 0) { hasPt = true; return; }
+      var name = (h.childNodes[0] ? h.childNodes[0].textContent : h.textContent).trim();
+      var items = [];
+      box.querySelectorAll('.poster a[href]').forEach(function (a) {
+        var pid = productId(a);
+        if (pid && items.indexOf(pid) < 0) items.push(pid);
+      });
+      if (items.length) groups.push({ name: name, items: items, paths: items.map(function (pid) {
+        var a = box.querySelector('a[href^="/' + pid + '-"]'); return a.pathname; }) });
+    });
+    // lê as páginas dos produtos (3 por vez; o resultado fica guardado no navegador)
+    var jobs = [];
+    groups.forEach(function (g) { g.items.forEach(function (pid, i) { jobs.push([pid, g.paths[i]]); }); });
+    var info = {}, k = 0;
+    function worker() {
+      if (k >= jobs.length) return Promise.resolve();
+      var j = jobs[k++];
+      return probe(j[0], j[1]).then(function (e) { info[j[0]] = e; return worker(); });
+    }
+    return Promise.all([worker(), worker(), worker()]).then(function () {
+      var out = [];
+      groups.forEach(function (g) {
+        var opts = g.items.filter(function (pid) { return info[pid] && info[pid].c >= 2; })
+          .map(function (pid) { return { v: pid, t: info[pid].n || pid }; });
+        if (opts.length) out.push({ name: g.name, opts: opts });
+      });
+      return { hasPt: hasPt, groups: out };
+    });
+  }
+
+  function fillPicker(box, key) {
+    courseOptions().then(function (o) {
+      var label = box.querySelector('.ijs-pick'), sel = label && label.querySelector('select');
+      if (!sel || !document.body.contains(box)) return;
+      var count = (o.hasPt ? 1 : 0) + o.groups.reduce(function (n, g) { return n + g.opts.length; }, 0);
+      if (count < 2) return; // um curso só: sem seletor
+      var html = '<option value="auto">Automático</option>';
+      if (o.hasPt) html += '<option value="pt">Treinamento LumiFat (Módulos 1 a 7)</option>';
+      o.groups.forEach(function (g) {
+        html += '<optgroup label="' + esc(g.name) + '">' + g.opts.map(function (x) {
+          return '<option value="' + x.v + '">' + esc(x.t) + '</option>'; }).join('') + '</optgroup>';
+      });
+      sel.innerHTML = html;
+      sel.value = key;
+      if (sel.value !== key) sel.value = 'auto';
+      label.hidden = false;
+      sel.addEventListener('change', function () {
+        setPick(sel.value);
+        var old = document.getElementById('ijs-home');
+        if (old) old.style.opacity = '.55';
+        renderHero(true);
+      });
+    }).catch(function (e) { if (window.console) console.warn('[ijs-ui] seletor', e); });
+  }
+
+  function renderHero(replace) {
     if (location.pathname !== '/') return;
     var rows = document.querySelector('main#main > div.overflow-x-clip');
-    if (!rows || document.getElementById('ijs-home')) return;
+    if (!rows || (!replace && document.getElementById('ijs-home'))) return;
     var seq = ++heroSeq;
-    var lang = uiLang();
-    var hasEs = !!document.querySelector('a[href^="/' + ES_COURSE + '-"]');
-    var job = (lang === 'es' && hasEs) ? esData() : (ptData() || (hasEs ? esData() : null));
-    if (!job) return;
-    Promise.all([job, firstName()]).then(function (res) {
-      if (seq !== heroSeq || document.getElementById('ijs-home')) return;
+    var choice = chooseJob();
+    if (!choice || !choice.job) {
+      if (getPick() !== 'auto') { setPick('auto'); if (replace) renderHero(true); }
+      return;
+    }
+    Promise.all([choice.job, firstName()]).then(function (res) {
+      if (seq !== heroSeq) return;
+      var old = document.getElementById('ijs-home');
+      if (old && !replace) return;
       var d = res[0]; if (!d) return;
       var target = document.querySelector('main#main > div.overflow-x-clip');
       if (!target) return;
@@ -338,7 +433,8 @@
       var box = document.createElement('section');
       box.id = 'ijs-home';
       box.innerHTML = heroHtml(d, res[1]);
-      target.insertBefore(box, target.firstChild);
+      if (old) old.replaceWith(box); else target.insertBefore(box, target.firstChild);
+      fillPicker(box, choice.key);
     }).catch(function (e) { if (window.console) console.warn('[ijs-ui] início', e); });
   }
 
